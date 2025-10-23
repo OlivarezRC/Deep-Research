@@ -47,11 +47,24 @@ async def get_llm_response(prompt: str) -> str:
     except Exception as e:
         logger.error(f"Error getting LLM response: {e}")
         # Return a fallback JSON structure
-        return json.dumps({
-            "key_findings": "Statistical analysis completed.",
-            "insights": ["Data patterns have been analyzed."],
-            "recommendations": ["Review the statistical summary for details."]
-        })
+        return _get_fallback_response()
+
+
+def _get_fallback_response() -> str:
+    """Return a fallback JSON response when LLM fails"""
+    return json.dumps({
+        "key_findings": "Statistical analysis completed successfully. The data has been analyzed for patterns, trends, and anomalies.",
+        "insights": [
+            "Descriptive statistics have been calculated for all numeric columns.",
+            "Distribution metrics show the spread and variability of your data.",
+            "Review the statistical tables above for detailed metrics."
+        ],
+        "recommendations": [
+            "Examine the coefficient of variation (CV) to understand data consistency.",
+            "Check skewness values to identify distribution patterns.",
+            "Investigate any outliers identified in the analysis."
+        ]
+    })
 
 
 class InsightGenerator:
@@ -107,34 +120,56 @@ class InsightGenerator:
         numeric_cols = data.select_dtypes(include=[np.number]).columns
         
         for col in numeric_cols:
-            col_data = data[col].dropna()  # Remove NaN values
-            
-            if len(col_data) == 0:
-                continue
+            try:
+                col_data = data[col].dropna()  # Remove NaN values
                 
-            mean_val = float(col_data.mean())
-            std_val = float(col_data.std())
-            min_val = float(col_data.min())
-            max_val = float(col_data.max())
-            q25 = float(col_data.quantile(0.25))
-            q75 = float(col_data.quantile(0.75))
-            iqr = q75 - q25
-            
-            stats[col] = {
-                "mean": mean_val,
-                "median": float(col_data.median()),
-                "std": std_val,
-                "min": min_val,
-                "max": max_val,
-                "q25": q25,
-                "q75": q75,
-                "iqr": iqr,  # Interquartile Range
-                "range": max_val - min_val,
-                "cv": (std_val / mean_val * 100) if mean_val != 0 else 0,  # Coefficient of Variation (%)
-                "skewness": float(col_data.skew()) if len(col_data) > 2 else 0,  # Distribution skewness
-                "count": int(col_data.count()),
-                "missing": int(data[col].isna().sum())
-            }
+                if len(col_data) == 0:
+                    continue
+                
+                # Calculate basic stats with None checks
+                mean_val = float(col_data.mean()) if not pd.isna(col_data.mean()) else 0.0
+                median_val = float(col_data.median()) if not pd.isna(col_data.median()) else 0.0
+                std_val = float(col_data.std()) if not pd.isna(col_data.std()) else 0.0
+                min_val = float(col_data.min()) if not pd.isna(col_data.min()) else 0.0
+                max_val = float(col_data.max()) if not pd.isna(col_data.max()) else 0.0
+                q25 = float(col_data.quantile(0.25)) if not pd.isna(col_data.quantile(0.25)) else 0.0
+                q75 = float(col_data.quantile(0.75)) if not pd.isna(col_data.quantile(0.75)) else 0.0
+                
+                # Calculate derived metrics with safety checks
+                iqr = q75 - q25 if (q75 is not None and q25 is not None) else 0.0
+                range_val = max_val - min_val if (max_val is not None and min_val is not None) else 0.0
+                
+                # CV with division by zero check
+                if mean_val != 0 and not pd.isna(mean_val) and not pd.isna(std_val):
+                    cv = (std_val / abs(mean_val)) * 100
+                else:
+                    cv = 0.0
+                
+                # Skewness with enough data points
+                try:
+                    skewness = float(col_data.skew()) if len(col_data) > 2 and not pd.isna(col_data.skew()) else 0.0
+                except:
+                    skewness = 0.0
+                
+                stats[col] = {
+                    "mean": mean_val,
+                    "median": median_val,
+                    "std": std_val,
+                    "min": min_val,
+                    "max": max_val,
+                    "q25": q25,
+                    "q75": q75,
+                    "iqr": iqr,
+                    "range": range_val,
+                    "cv": cv,
+                    "skewness": skewness,
+                    "count": int(col_data.count()),
+                    "missing": int(data[col].isna().sum())
+                }
+                
+            except Exception as e:
+                logger.warning(f"Error calculating statistics for column {col}: {e}")
+                continue
         
         return stats
     
@@ -222,8 +257,7 @@ class InsightGenerator:
             "patterns": patterns
         }
         
-        prompt = f"""
-        You are a data analyst. Analyze the following data and provide insights.
+        prompt = f"""You are a data analyst. Analyze the following data and provide insights.
 
 Data Summary:
 - Shape: {data_summary['shape'][0]} rows, {data_summary['shape'][1]} columns

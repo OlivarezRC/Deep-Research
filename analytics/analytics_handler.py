@@ -11,7 +11,7 @@ from analytics.chart_generator import ChartGenerator
 from analytics.insight_generator import InsightGenerator
 from utils.utils import get_logger, append_message
 import json
-import time
+
 logger = get_logger()
 
 
@@ -29,7 +29,7 @@ class AnalyticsHandler:
         params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Process analytics request with LLM-powered chart recommendations
+        Process analytics request with intelligent chart selection
         
         Args:
             data: Input data (DataFrame, dict, or file path)
@@ -57,15 +57,26 @@ class AnalyticsHandler:
             
             results = {}
             
-            # Get LLM recommendations for charts
-            chart_specs = await self._get_chart_recommendations(df, user_prompt)
+            # Check if user explicitly requested specific chart types
+            explicit_charts = self._extract_explicit_chart_requests(user_prompt, df)
             
-            # Generate recommended charts
-            if chart_specs:
-                charts_result = await self._generate_multiple_charts(df, chart_specs)
+            if explicit_charts:
+                # User requested specific charts - use those
+                logger.info(f"Using {len(explicit_charts)} explicit chart request(s)")
+                charts_result = await self._generate_multiple_charts(df, explicit_charts)
                 results["charts"] = charts_result
+                results["chart_source"] = "explicit"
+            else:
+                # No explicit request - use LLM recommendations
+                logger.info("No explicit charts requested, using LLM recommendations")
+                chart_specs = await self._get_chart_recommendations(df, user_prompt)
+                
+                if chart_specs:
+                    charts_result = await self._generate_multiple_charts(df, chart_specs)
+                    results["charts"] = charts_result
+                    results["chart_source"] = "llm"
             
-            # Generate insights
+            # Generate insights aligned with user query
             insights_result = await self._generate_insights(df, user_prompt, params)
             results["insights"] = insights_result
             
@@ -74,6 +85,152 @@ class AnalyticsHandler:
         except Exception as e:
             logger.error(f"Error processing analytics request: {e}")
             return {"error": str(e)}
+    
+    def _extract_explicit_chart_requests(
+        self, 
+        user_prompt: str, 
+        df: pd.DataFrame
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract explicit chart requests from user prompt
+        
+        Args:
+            user_prompt: User's prompt
+            df: DataFrame to analyze
+            
+        Returns:
+            List of chart specifications if explicit requests found, empty list otherwise
+        """
+        if not user_prompt:
+            return []
+        
+        prompt_lower = user_prompt.lower()
+        explicit_charts = []
+        
+        # Chart type keywords and their variations
+        chart_patterns = {
+            "line": ["line chart", "line graph", "trend line", "time series"],
+            "bar": ["bar chart", "bar graph", "column chart", "vertical bar"],
+            "scatter": ["scatter plot", "scatter chart", "scatterplot", "point plot"],
+            "pie": ["pie chart", "pie graph", "donut chart"],
+            "histogram": ["histogram", "distribution chart", "frequency chart"],
+            "box": ["box plot", "boxplot", "box and whisker"],
+            "heatmap": ["heatmap", "heat map", "correlation matrix"],
+            "area": ["area chart", "area graph", "filled line"],
+            "funnel": ["funnel chart", "funnel graph"],
+            "waterfall": ["waterfall chart", "waterfall graph"]
+        }
+        
+        # Check for explicit chart mentions
+        requested_types = []
+        for chart_type, patterns in chart_patterns.items():
+            for pattern in patterns:
+                if pattern in prompt_lower:
+                    requested_types.append(chart_type)
+                    break
+        
+        # Remove duplicates while preserving order
+        requested_types = list(dict.fromkeys(requested_types))
+        
+        if not requested_types:
+            return []
+        
+        # Get numeric and categorical columns
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        # Try to extract column names from prompt
+        mentioned_columns = [col for col in df.columns if col.lower() in prompt_lower]
+        
+        # Build chart specs for each requested type
+        for chart_type in requested_types:
+            spec = self._build_chart_spec_from_prompt(
+                chart_type, 
+                df, 
+                user_prompt,
+                numeric_cols,
+                categorical_cols,
+                mentioned_columns
+            )
+            if spec:
+                explicit_charts.append(spec)
+        
+        return explicit_charts
+    
+    def _build_chart_spec_from_prompt(
+        self,
+        chart_type: str,
+        df: pd.DataFrame,
+        prompt: str,
+        numeric_cols: List[str],
+        categorical_cols: List[str],
+        mentioned_columns: List[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Build chart specification based on chart type and available columns"""
+        
+        spec = {
+            "type": chart_type,
+            "title": f"{chart_type.capitalize()} Chart",
+            "reason": f"User explicitly requested {chart_type} chart"
+        }
+        
+        # Determine x and y based on chart type and mentioned columns
+        if chart_type in ["line", "bar", "scatter", "area"]:
+            # Need both x and y
+            if len(mentioned_columns) >= 2:
+                spec["x"] = mentioned_columns[0]
+                spec["y"] = mentioned_columns[1]
+            elif len(mentioned_columns) == 1 and mentioned_columns[0] in numeric_cols:
+                spec["x"] = df.columns[0]
+                spec["y"] = mentioned_columns[0]
+            elif categorical_cols and numeric_cols:
+                spec["x"] = categorical_cols[0] if categorical_cols else df.columns[0]
+                spec["y"] = numeric_cols[0]
+            else:
+                spec["x"] = df.columns[0] if len(df.columns) > 0 else None
+                spec["y"] = df.columns[1] if len(df.columns) > 1 else None
+                
+        elif chart_type == "pie":
+            # Needs names and values
+            if len(mentioned_columns) >= 2:
+                spec["names"] = mentioned_columns[0]
+                spec["values"] = mentioned_columns[1]
+            elif categorical_cols and numeric_cols:
+                spec["names"] = categorical_cols[0]
+                spec["values"] = numeric_cols[0]
+            else:
+                spec["names"] = df.columns[0] if len(df.columns) > 0 else None
+                spec["values"] = df.columns[1] if len(df.columns) > 1 else None
+                
+        elif chart_type == "histogram":
+            # Needs only x
+            if mentioned_columns and mentioned_columns[0] in numeric_cols:
+                spec["x"] = mentioned_columns[0]
+            elif numeric_cols:
+                spec["x"] = numeric_cols[0]
+            else:
+                spec["x"] = df.columns[0] if len(df.columns) > 0 else None
+                
+        elif chart_type == "box":
+            # Can have x (categorical) and y (numeric)
+            if len(mentioned_columns) >= 1 and mentioned_columns[0] in numeric_cols:
+                spec["y"] = mentioned_columns[0]
+                if len(categorical_cols) > 0:
+                    spec["x"] = categorical_cols[0]
+            elif numeric_cols:
+                spec["y"] = numeric_cols[0]
+                if categorical_cols:
+                    spec["x"] = categorical_cols[0]
+        
+        # Update title based on columns
+        if spec.get("x") and spec.get("y"):
+            spec["title"] = f"{spec['y']} by {spec['x']}"
+        elif spec.get("y"):
+            spec["title"] = f"Distribution of {spec['y']}"
+        elif spec.get("x"):
+            spec["title"] = f"Analysis of {spec['x']}"
+        
+        return spec if (spec.get("x") or spec.get("y") or spec.get("names")) else None
     
     async def _get_chart_recommendations(
         self,
@@ -92,23 +249,25 @@ class AnalyticsHandler:
         """
         try:
             # Prepare data summary
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+            
             data_summary = {
                 "columns": df.columns.tolist(),
                 "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
                 "shape": df.shape,
-                "sample": df.head(3).to_dict(),
-                "numeric_columns": df.select_dtypes(include=['number']).columns.tolist(),
-                "categorical_columns": df.select_dtypes(include=['object', 'category']).columns.tolist()
+                "sample": df.head(3).to_dict() if len(df) > 0 else {},
+                "numeric_columns": numeric_cols,
+                "categorical_columns": categorical_cols
             }
             
-            prompt = f"""User query: {query} 
-            You are a data visualization expert. Based on the data and user request, recommend appropriate charts.
+            prompt = f"""You are a data visualization expert. Based on the data and user request, recommend appropriate charts.
 
 Data Summary:
 - Shape: {data_summary['shape'][0]} rows, {data_summary['shape'][1]} columns
-- Columns: {', '.join(data_summary['columns'])}
-- Numeric columns: {', '.join(data_summary['numeric_columns'])}
-- Categorical columns: {', '.join(data_summary['categorical_columns'])}
+- Columns: {', '.join(data_summary['columns'][:10])}{'...' if len(data_summary['columns']) > 10 else ''}
+- Numeric columns: {', '.join(numeric_cols[:5])}{'...' if len(numeric_cols) > 5 else ''}
+- Categorical columns: {', '.join(categorical_cols[:5])}{'...' if len(categorical_cols) > 5 else ''}
 
 User Request: "{user_prompt if user_prompt else 'Show me insights about this data'}"
 
@@ -148,7 +307,10 @@ Respond in JSON format:
                 
                 # Restore original mode
                 cl.user_session.set("analytics_mode", original_mode)
-                
+                # Validate response
+                if not response or response.strip() == "":
+                    logger.warning("Empty response from chart recommendation")
+                    return self._get_default_charts(df)        
                 # Parse response
                 try:
                     # Clean markdown code blocks
@@ -163,6 +325,13 @@ Respond in JSON format:
                     
                     chart_data = json.loads(clean_response)
                     return chart_data.get("charts", [])
+
+                    if not charts or len(charts) == 0:
+                        logger.warning("No charts in LLM response, using defaults")
+                        return self._get_default_charts(df)
+                    
+                    return charts
+                    
                 except json.JSONDecodeError:
                     logger.warning("Could not parse chart recommendations as JSON")
                     # Fallback to default charts
@@ -348,7 +517,7 @@ Respond in JSON format:
                             elements=[plotly_element]
                         ).send()
             
-           # Display insights with enhanced statistics
+            # Display insights with enhanced statistics
             if "insights" in results and results["insights"].get("success"):
                 insights_data = results["insights"]["data"]
                 
@@ -384,64 +553,72 @@ Respond in JSON format:
     
     def _format_statistics_table(self, statistics: Dict[str, Any]) -> str:
         """Format comprehensive statistics as a markdown table"""
+        if not statistics:
+            return "## 📊 Statistical Summary\n\n_No numeric columns found in the data._\n"
+        
         md = ["## 📊 Statistical Summary\n"]
         
-        # Main statistics table
-        md.append("### Descriptive Statistics")
-        md.append("")
-        md.append("| Column | Count | Missing | Mean | Median | Std Dev | Min | Q1 | Q3 | Max |")
-        md.append("|--------|-------|---------|------|--------|---------|-----|----|----|-----|")
-        
-        for col, stats in statistics.items():
-            count = stats.get('count', 0)
-            missing = stats.get('missing', 0)
-            mean = stats.get('mean', 0)
-            median = stats.get('median', 0)
-            std = stats.get('std', 0)
-            min_val = stats.get('min', 0)
-            q1 = stats.get('q25', 0)
-            q3 = stats.get('q75', 0)
-            max_val = stats.get('max', 0)
+        try:
+            # Main statistics table
+            md.append("### Descriptive Statistics")
+            md.append("")
+            md.append("| Column | Count | Missing | Mean | Median | Std Dev | Min | Q1 | Q3 | Max |")
+            md.append("|--------|-------|---------|------|--------|---------|-----|----|----|-----|")
             
-            md.append(
-                f"| **{col}** | {count} | {missing} | {mean:.2f} | {median:.2f} | {std:.2f} | "
-                f"{min_val:.2f} | {q1:.2f} | {q3:.2f} | {max_val:.2f} |"
-            )
-        
-        md.append("")
-        
-        # Additional metrics table
-        md.append("### Distribution Metrics")
-        md.append("")
-        md.append("| Column | Range | IQR | CV (%) | Skewness |")
-        md.append("|--------|-------|-----|--------|----------|")
-        
-        for col, stats in statistics.items():
-            range_val = stats.get('range', 0)
-            iqr = stats.get('iqr', 0)
-            cv = stats.get('cv', 0)
-            skewness = stats.get('skewness', 0)
+            for col, stats in statistics.items():
+                count = stats.get('count', 0)
+                missing = stats.get('missing', 0)
+                mean = stats.get('mean', 0)
+                median = stats.get('median', 0)
+                std = stats.get('std', 0)
+                min_val = stats.get('min', 0)
+                q1 = stats.get('q25', 0)
+                q3 = stats.get('q75', 0)
+                max_val = stats.get('max', 0)
+                
+                md.append(
+                    f"| **{col}** | {count} | {missing} | {mean:.2f} | {median:.2f} | {std:.2f} | "
+                    f"{min_val:.2f} | {q1:.2f} | {q3:.2f} | {max_val:.2f} |"
+                )
             
-            # Interpret skewness
-            if abs(skewness) < 0.5:
-                skew_label = "Symmetric"
-            elif skewness > 0:
-                skew_label = "Right-skewed"
-            else:
-                skew_label = "Left-skewed"
+            md.append("")
             
-            md.append(
-                f"| **{col}** | {range_val:.2f} | {iqr:.2f} | {cv:.2f} | "
-                f"{skewness:.2f} ({skew_label}) |"
-            )
-        
-        md.append("")
-        md.append("_**Legend:**_")
-        md.append("- _Q1/Q3: 25th/75th percentiles_")
-        md.append("- _IQR: Interquartile Range (Q3 - Q1)_")
-        md.append("- _CV: Coefficient of Variation (relative variability)_")
-        md.append("- _Skewness: Distribution asymmetry (0 = symmetric)_")
-        md.append("")
+            # Additional metrics table
+            md.append("### Distribution Metrics")
+            md.append("")
+            md.append("| Column | Range | IQR | CV (%) | Skewness |")
+            md.append("|--------|-------|-----|--------|----------|")
+            
+            for col, stats in statistics.items():
+                range_val = stats.get('range', 0)
+                iqr = stats.get('iqr', 0)
+                cv = stats.get('cv', 0)
+                skewness = stats.get('skewness', 0)
+                
+                # Interpret skewness
+                if abs(skewness) < 0.5:
+                    skew_label = "Symmetric"
+                elif skewness > 0:
+                    skew_label = "Right-skewed"
+                else:
+                    skew_label = "Left-skewed"
+                
+                md.append(
+                    f"| **{col}** | {range_val:.2f} | {iqr:.2f} | {cv:.2f} | "
+                    f"{skewness:.2f} ({skew_label}) |"
+                )
+            
+            md.append("")
+            md.append("_**Legend:**_")
+            md.append("- _Q1/Q3: 25th/75th percentiles_")
+            md.append("- _IQR: Interquartile Range (Q3 - Q1)_")
+            md.append("- _CV: Coefficient of Variation (relative variability)_")
+            md.append("- _Skewness: Distribution asymmetry (0 = symmetric)_")
+            md.append("")
+            
+        except Exception as e:
+            logger.error(f"Error formatting statistics table: {e}", exc_info=True)
+            md.append("\n_Error formatting statistics. Raw data available on request._\n")
         
         return "\n".join(md)
     
