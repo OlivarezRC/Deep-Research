@@ -106,7 +106,7 @@ async def chat_completion(messages: list, use_tools = False) -> str:
         model_name = chat_settings.get("model_name")
 
         # Show thinking message to user
-        msg = await cl.Message(f"[{model_name}] thinking...", author="LikhAI").send()
+        msg = await cl.Message(f"[{model_name}] thinking...", author="GPT Model").send()
         chat_parameters = get_llm_params(messages)
         logger.info(f"Chat parameters: {chat_parameters}")
 

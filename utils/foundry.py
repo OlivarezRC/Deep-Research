@@ -70,7 +70,7 @@ async def chat_agent(user_input: str) -> str:
             cl.user_session.set("first_message", user_input)
 
         # Show thinking message to user
-        msg = await cl.Message(f"[{model_name}] thinking...", author="LikhAI").send()
+        msg = await cl.Message(f"[{model_name}] thinking...", author="GPT Model").send()
         if not msg:
             raise Exception("Failed to create message object")
         
