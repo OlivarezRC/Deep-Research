@@ -1,0 +1,26 @@
+[
+    {
+        "model_id": "asst_wOdN3FydRLIYo3hGIVoyoqin",
+        "model_deployment": "foundry/gpt-4o",
+        "api_key": "",
+        "api_version": null,
+        "api_endpoint": null,
+        "description": "Uses a large language model (LLM) to generate responses."
+    },
+    {
+        "model_id": "gpt-4o",
+        "model_deployment": "azure/gpt-4o",
+        "api_key": "",
+        "api_version": "2024-05-01-preview",
+        "api_endpoint": "https://xxxxx.openai.azure.com",
+        "description": "Uses a large language model (LLM) to generate responses."
+    },
+    {
+        "model_id": "Phi-4-api",
+        "model_deployment": "azure/Phi-4-api",
+        "api_key": "",
+        "api_version": null,
+        "api_endpoint": "https://xxxxx.models.ai.azure.com",
+        "description": "Uses a large language model (LLM) to generate responses."
+    }
+]

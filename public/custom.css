@@ -1,0 +1,139 @@
+.watermark {
+    display: flex !important;
+    align-items: center;
+}
+
+.watermark .text-xs {
+    display: flex;
+}
+
+.watermark .text-xs span {
+    font-size: 0;
+    line-height: 0;
+    visibility: hidden !important;
+}
+
+.watermark .text-xs span::after {
+    content: "Note: Generated content may be inaccurate or false.";
+    font-size: 12px;
+    line-height: normal;
+    visibility: visible !important;
+    display: block;
+}
+
+.watermark svg {
+    display: none !important;
+}
+
+/* Simple rule to rename the Readme button to Feedback */
+button#readme-button span {
+    font-size: 0 !important;
+}
+
+button#readme-button span::before {
+    content: "Feedback" !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+}
+
+/* Target by hierarchy and text content */
+h2.text-lg.font-semibold.leading-none.tracking-tight:not([id^="radix-"]),
+div:has(> h2.text-lg.font-semibold.leading-none.tracking-tight:not([id^="radix-"])) {
+    display: none !important;
+}
+
+a[href*='https://chainlit.io'] { 
+    visibility: visible !important;
+    pointer-events: none;
+}
+
+/* Toggle Switch Container */
+.work-web-toggle {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 20px;
+}
+
+/* Toggle Switch Background */
+.toggle-switch {
+    position: relative;
+    width: 120px;
+    height: 36px;
+    background-color: #374151;
+    border-radius: 18px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    border: 2px solid #4B5563;
+    overflow: hidden;
+}
+
+/* Toggle Switch Labels */
+.toggle-option {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    font-weight: 600;
+    color: #9CA3AF;
+    transition: color 0.3s ease;
+    z-index: 2;
+    pointer-events: none;
+    user-select: none;
+}
+
+.toggle-option.work {
+    left: 16px;
+}
+
+.toggle-option.web {
+    right: 16px;
+}
+
+/* Toggle Switch Slider */
+.toggle-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 56px;
+    height: 30px;
+    background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+    border-radius: 15px;
+    transition: transform 0.3s ease, background 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Active states */
+.toggle-switch.work .toggle-option.work,
+.toggle-switch.web .toggle-option.web {
+    color: #FFFFFF;
+}
+
+.toggle-switch.web .toggle-slider {
+    transform: translateX(58px);
+    background: linear-gradient(135deg, #059669, #047857);
+}
+
+/* Header integration */
+#header {
+    position: relative;
+}
+
+#header::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1000;
+}
+
+/* Insert toggle into header */
+.header-toggle-container {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1001;
+}
